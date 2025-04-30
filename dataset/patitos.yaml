@@ -1,0 +1,13 @@
+names:
+- ducks
+nc: 1
+path: /Users/jorgenajera/Documents/Duck_vision
+roboflow:
+  license: CC BY 4.0
+  project: duck_tracker
+  url: https://universe.roboflow.com/robotica-inteligente-a5w1q/duck_tracker/dataset/1
+  version: 1
+  workspace: robotica-inteligente-a5w1q
+test: ../dataset/test/images
+train: ../dataset/train/images
+val: ../dataset/valid/images
