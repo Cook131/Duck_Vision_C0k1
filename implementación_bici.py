@@ -10,19 +10,30 @@ def main():
     # Detectar características en todas las imágenes
     reconstructor.detect_features()
     
-    # Emparejar características entre imágenes
-    if not reconstructor.match_features():
+    # NUEVO: Probar diferentes parámetros RANSAC
+    best_params = reconstructor.test_ransac_parameters(
+        thresholds=[0.5, 0.7, 1.0, 1.5, 2.0],
+        probabilities=[0.95, 0.99],
+        sample_pairs=3  # Prueba con los 3 mejores pares
+    )
+    
+    # Usar los mejores parámetros encontrados para el emparejamiento final
+    if not reconstructor.match_features(
+        ransac_threshold=best_params['threshold'],
+        ransac_probability=best_params['probability']
+    ):
         print("No se encontraron suficientes coincidencias entre imágenes.")
         return
     
-    # Reconstruir la escena inicial con el mejor par
+    # Continuar con la reconstrucción usando los matches mejorados
     if not reconstructor.reconstruct_initial_pair():
         print("Error en la reconstrucción inicial.")
         return
     
-    # Añadir más vistas para completar la reconstrucción
-    num_cameras = reconstructor.add_more_views()
-    print(f"Cámaras registradas: {num_cameras}")
+    # Añadir más vistas
+    reconstructor.add_more_views()
+    
+    print("Reconstrucción 3D completada.")
 
 if __name__ == '__main__':
     main()

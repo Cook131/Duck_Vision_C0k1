@@ -96,15 +96,35 @@ class SfMReconstructor:
             
         return True
         
-    def match_features(self):
-        """Establece correspondencias entre pares de imágenes."""
+    def match_features(self, ransac_threshold=1.0, ransac_probability=0.99):
+        """
+        Establece correspondencias entre pares de imágenes usando el test de ratio de Lowe
+        y filtrado geométrico con RANSAC.
+        
+        Args:
+            ransac_threshold: Umbral de reproyección para RANSAC (en píxeles)
+            ransac_probability: Probabilidad de encontrar una buena muestra en RANSAC
+            
+        Returns:
+            True si se encontraron suficientes correspondencias entre imágenes
+        """
         logger.info("Estableciendo correspondencias entre imágenes...")
+        logger.info(f"Parámetros RANSAC: umbral={ransac_threshold}, probabilidad={ransac_probability}")
         
         # Elegir el matcher adecuado
         if self.feature_method.lower() == 'sift':
             matcher = cv2.BFMatcher(cv2.NORM_L2)
         else:  # para ORB
             matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+        
+        # Estimar matriz de calibración aproximada para filtrado geométrico
+        img_height, img_width = self.images[0].shape[:2]
+        focal_length = 1.2 * max(img_height, img_width)
+        K = np.array([
+            [focal_length, 0, img_width/2],
+            [0, focal_length, img_height/2],
+            [0, 0, 1]
+        ])
         
         # Comparar todas las combinaciones de pares de imágenes
         num_images = len(self.images)
@@ -119,20 +139,44 @@ class SfMReconstructor:
                     if m.distance < self.match_ratio * n.distance:
                         good_matches.append(m)
                 
-                # Guardar las coincidencias si superan el umbral mínimo
+                # Aplicar filtrado geométrico si hay suficientes coincidencias
                 if len(good_matches) >= self.min_matches:
-                    self.matches[(i, j)] = good_matches
-                    logger.info(f"Imágenes {i}-{j}: {len(good_matches)} coincidencias")
-                    # Visualizar coincidencias (opcional)
-                    img_matches = cv2.drawMatches(
-                        self.images[i], self.keypoints[i],
-                        self.images[j], self.keypoints[j],
-                        good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
+                    # Extraer puntos correspondientes
+                    pts1 = np.float32([self.keypoints[i][m.queryIdx].pt for m in good_matches])
+                    pts2 = np.float32([self.keypoints[j][m.trainIdx].pt for m in good_matches])
+                    
+                    # Estimar matriz fundamental y filtrar con RANSAC
+                    F, mask = cv2.findFundamentalMat(
+                        pts1, pts2, 
+                        method=cv2.FM_RANSAC, 
+                        ransacReprojThreshold=ransac_threshold, 
+                        confidence=ransac_probability
                     )
-                    cv2.imwrite(os.path.join(self.output_dir, f"matches_{i}_{j}.jpg"), img_matches)
+                    
+                    # Filtrar matches usando la máscara de inliers
+                    if F is not None and mask is not None:
+                        mask = mask.ravel().astype(bool)
+                        inlier_matches = [good_matches[k] for k in range(len(good_matches)) if mask[k]]
+                        
+                        # Solo guardar si quedan suficientes después del filtrado
+                        if len(inlier_matches) >= self.min_matches:
+                            self.matches[(i, j)] = inlier_matches
+                            inlier_ratio = len(inlier_matches) / len(good_matches)
+                            logger.info(f"Imágenes {i}-{j}: {len(inlier_matches)} inliers de {len(good_matches)} "
+                                    f"matches iniciales (ratio: {inlier_ratio:.2f})")
+                            
+                            # Visualizar matches filtrados
+                            img_matches = cv2.drawMatches(
+                                self.images[i], self.keypoints[i],
+                                self.images[j], self.keypoints[j],
+                                inlier_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
+                            )
+                            cv2.imwrite(os.path.join(self.output_dir, f"matches_{i}_{j}.jpg"), img_matches)
         
-        logger.info(f"Total de pares con coincidencias: {len(self.matches)}")
+        logger.info(f"Total de pares con matches: {len(self.matches)}")
         return len(self.matches) > 0
+
+
     
     def _estimate_essential_matrix(self, pts1, pts2, K):
         """
@@ -466,6 +510,192 @@ class SfMReconstructor:
         
         # Visualizar con Open3D (opcional)
         # o3d.visualization.draw_geometries([pcd])
+
+    def test_ransac_parameters(self, thresholds=[0.5, 1.0, 1.5, 2.0], 
+                          probabilities=[0.90, 0.95, 0.99], 
+                          sample_pairs=3):
+        """
+        Prueba diferentes combinaciones de umbrales RANSAC y probabilidades
+        para encontrar la configuración óptima para el emparejamiento de características.
+        
+        Args:
+            thresholds: Lista de umbrales de reproyección a probar (en píxeles)
+            probabilities: Lista de probabilidades RANSAC a probar
+            sample_pairs: Número de pares de imágenes a probar (los con más matches iniciales)
+            
+        Returns:
+            best_params: Diccionario con los mejores parámetros encontrados
+        """
+        logger.info("Iniciando prueba de parámetros RANSAC...")
+        
+        # Detectar características si no se ha hecho ya
+        if not self.keypoints or not self.descriptors:
+            self.detect_features()
+        
+        # Preparar matcher
+        if self.feature_method.lower() == 'sift':
+            matcher = cv2.BFMatcher(cv2.NORM_L2)
+        else:
+            matcher = cv2.BFMatcher(cv2.NORM_HAMMING)
+        
+        # Encontrar los pares de imágenes con más coincidencias potenciales
+        num_images = len(self.images)
+        pairs_to_test = []
+        for i in range(num_images):
+            for j in range(i+1, num_images):
+                # Obtener matches iniciales con ratio test
+                matches = matcher.knnMatch(self.descriptors[i], self.descriptors[j], k=2)
+                good_matches = []
+                for m, n in matches:
+                    if m.distance < self.match_ratio * n.distance:
+                        good_matches.append(m)
+                
+                if len(good_matches) >= self.min_matches:
+                    pairs_to_test.append((i, j, good_matches, len(good_matches)))
+        
+        # Ordenar por número de matches y seleccionar los mejores
+        pairs_to_test.sort(key=lambda x: x[3], reverse=True)
+        pairs_to_test = pairs_to_test[:sample_pairs]
+        
+        # Estimar matriz de calibración (aproximada)
+        img_height, img_width = self.images[0].shape[:2]
+        focal_length = 1.2 * max(img_height, img_width)
+        K = np.array([
+            [focal_length, 0, img_width/2],
+            [0, focal_length, img_height/2],
+            [0, 0, 1]
+        ])
+        
+        # Preparar para guardar resultados
+        results = {}
+        
+        # Directorio para guardar visualizaciones
+        test_dir = os.path.join(self.output_dir, "ransac_tests")
+        if not os.path.exists(test_dir):
+            os.makedirs(test_dir)
+        
+        # Probar cada combinación de parámetros
+        for threshold in thresholds:
+            for probability in probabilities:
+                config_name = f"thresh_{threshold}_prob_{probability}"
+                results[config_name] = {
+                    'threshold': threshold,
+                    'probability': probability,
+                    'inlier_ratios': [],
+                    'total_inliers': 0,
+                    'pair_results': []
+                }
+                
+                logger.info(f"Probando configuración: umbral={threshold}, probabilidad={probability}")
+                
+                # Probar en cada par de imágenes seleccionado
+                for idx, (i, j, good_matches, _) in enumerate(pairs_to_test):
+                    # Extraer puntos correspondientes
+                    pts1 = np.float32([self.keypoints[i][m.queryIdx].pt for m in good_matches])
+                    pts2 = np.float32([self.keypoints[j][m.trainIdx].pt for m in good_matches])
+                    
+                    # Aplicar filtrado geométrico con RANSAC
+                    F, mask = cv2.findFundamentalMat(
+                        pts1, pts2, 
+                        method=cv2.FM_RANSAC, 
+                        ransacReprojThreshold=threshold, 
+                        confidence=probability
+                    )
+                    
+                    # Si no se pudo calcular F o no hubo inliers
+                    if F is None or mask is None:
+                        inlier_ratio = 0
+                        inlier_count = 0
+                        filtered_matches = []
+                    else:
+                        mask = mask.ravel().astype(bool)
+                        inlier_count = np.sum(mask)
+                        inlier_ratio = inlier_count / len(good_matches) if len(good_matches) > 0 else 0
+                        filtered_matches = [m for idx, m in enumerate(good_matches) if mask[idx]]
+                    
+                    # Guardar resultados de este par
+                    results[config_name]['inlier_ratios'].append(inlier_ratio)
+                    results[config_name]['total_inliers'] += inlier_count
+                    results[config_name]['pair_results'].append({
+                        'pair': (i, j),
+                        'inlier_ratio': inlier_ratio,
+                        'inlier_count': inlier_count,
+                        'total_matches': len(good_matches)
+                    })
+                    
+                    # Visualizar y guardar imagen de matches filtrados
+                    img_matches = cv2.drawMatches(
+                        self.images[i], self.keypoints[i],
+                        self.images[j], self.keypoints[j],
+                        filtered_matches, None, 
+                        flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
+                    )
+                    
+                    vis_filename = f"{config_name}_pair_{i}_{j}.jpg"
+                    cv2.imwrite(os.path.join(test_dir, vis_filename), img_matches)
+                
+                # Calcular métricas globales para esta configuración
+                results[config_name]['avg_inlier_ratio'] = np.mean(results[config_name]['inlier_ratios'])
+        
+        # Determinar la mejor configuración
+        # Criterio: mayor ratio de inliers manteniendo un número razonable de matches
+        best_config = max(results.keys(), key=lambda k: results[k]['avg_inlier_ratio'])
+        best_threshold = results[best_config]['threshold']
+        best_probability = results[best_config]['probability']
+        
+        logger.info(f"Mejor configuración encontrada: umbral={best_threshold}, "
+                    f"probabilidad={best_probability}, "
+                    f"ratio inliers promedio={results[best_config]['avg_inlier_ratio']:.4f}")
+        
+        # Crear informe visual comparativo
+        self._create_parameter_test_report(results, test_dir)
+        
+        return {
+            'threshold': best_threshold,
+            'probability': best_probability,
+            'results': results
+        }
+
+    def _create_parameter_test_report(self, results, test_dir):
+        """Crea un informe visual comparativo de las diferentes configuraciones probadas."""
+        # Preparar datos para gráficos
+        configs = list(results.keys())
+        avg_ratios = [results[c]['avg_inlier_ratio'] for c in configs]
+        total_inliers = [results[c]['total_inliers'] for c in configs]
+        
+        # Crear figura para el informe
+        plt.figure(figsize=(12, 10))
+        
+        # Gráfico de ratio promedio de inliers
+        plt.subplot(2, 1, 1)
+        bars = plt.bar(configs, avg_ratios)
+        plt.title('Ratio promedio de inliers por configuración')
+        plt.xticks(rotation=45)
+        plt.ylabel('Ratio promedio de inliers')
+        
+        # Añadir valores como etiquetas
+        for bar, ratio in zip(bars, avg_ratios):
+            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.01,
+                    f'{ratio:.2f}', ha='center', va='bottom')
+        
+        # Gráfico de total de inliers
+        plt.subplot(2, 1, 2)
+        bars = plt.bar(configs, total_inliers)
+        plt.title('Total de inliers por configuración')
+        plt.xticks(rotation=45)
+        plt.ylabel('Número total de inliers')
+        
+        # Añadir valores como etiquetas
+        for bar, count in zip(bars, total_inliers):
+            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
+                    f'{count}', ha='center', va='bottom')
+        
+        plt.tight_layout()
+        plt.savefig(os.path.join(test_dir, 'parameter_comparison.png'))
+        plt.close()
+        
+        logger.info(f"Informe de comparación guardado en {os.path.join(test_dir, 'parameter_comparison.png')}")
+
 
 # Ejemplo de uso:
 # reconstructor = SfMReconstructor('ruta/a/imagenes')
