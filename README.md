@@ -1,6 +1,6 @@
-## Descripción
+# Canny Edge
 
-*Canny_EdgeVideo.py* carga un vídeo y aplica detección de bordes de **Canny** junto a un filtro de **Kalman** para resaltar y seguir los centroides de los contornos. Gracias al parámetro de FPS objetivo, el script omite fotogramas cuando es necesario, convierte cada imagen a escala de grises y detecta bordes, ofreciendo así una vista nítida de las formas en movimiento.
+<code>Canny2/Canny_EdgeVideo.py</code> carga un vídeo y aplica detección de bordes de **Canny** junto a un filtro de **Kalman** para resaltar y seguir los centroides de los contornos.
 
 ## ¿Cómo funciona?
 
@@ -12,11 +12,12 @@
    - El primer centroide inicializa el estado del filtro.  
    - Cada medición posterior (nuevo centroide) se utiliza para predecir y corregir la posición estimada, suavizando las oscilaciones.  
 4. **Visualización**  
-   Se superpone el mapa de bordes sobre el fotograma en gris, dibujando cada contorno y marcando su centroide con un punto blanco. Para salir, basta con pulsar `q`.
+   Se superpone el mapa de bordes sobre el fotograma en gris, dibujando cada contorno y marcando su centroide con un punto blanco.
 
-## Uso
-
-Coloca el código y un vídeo de ejemplo en la carpeta `Canny2`, navega hasta ella y ejecuta:
+Coloca un vídeo de ejemplo en la carpeta <code>Canny2/video.mp4</code>, navega hasta ella y ejecuta:
 
 ```bash
 python3 Canny_EdgeVideo.py
+```
+
+![Canny Edge Detection](https://github.com/user-attachments/assets/2443e45b-8fff-40ce-a46f-21987da4b759)
