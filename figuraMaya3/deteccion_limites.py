@@ -96,7 +96,7 @@ class SfMReconstructor:
             
         return True
         
-    def match_features(self, ransac_threshold=1.0, ransac_probability=0.99):
+    def match_features(self, ransac_threshold=0.7, ransac_probability=0.99):
         """
         Matches features between pairs of images using the specified feature detection method
         and filters matches using the RANSAC algorithm to find inliers.
@@ -227,7 +227,7 @@ class SfMReconstructor:
         
         # Estimar matriz de calibración (aproximada si no se tiene una real)
         img_height, img_width = self.images[idx1].shape[:2]
-        focal_length = 1.2 * max(img_height, img_width)  # Aproximación de distancia focal
+        focal_length = max(img_height, img_width)
         K = np.array([
             [focal_length, 0, img_width/2],
             [0, focal_length, img_height/2],
@@ -544,7 +544,7 @@ class SfMReconstructor:
         
         # Estimar matriz de calibración (aproximada)
         img_height, img_width = self.images[0].shape[:2]
-        focal_length = 1.2 * max(img_height, img_width)
+        focal_length = max(img_height, img_width)
         K = np.array([
             [focal_length, 0, img_width/2],
             [0, focal_length, img_height/2],
@@ -691,3 +691,18 @@ class SfMReconstructor:
 
 size_mb = os.path.getsize("/Users/jorgenajera/Documents/Duck_Vision_/figuraMaya3/output/final_reconstruction.ply") / (1024 * 1024)
 print(f"Tamaño del archivo PLY: {size_mb:.2f} MB")
+
+def visualizar_dos_nubes(ply1, ply2):
+    if not os.path.exists(ply1) or not os.path.exists(ply2):
+        print("No se encuentran ambos archivos PLY.")
+        return
+    pcd1 = o3d.io.read_point_cloud(ply1)
+    pcd2 = o3d.io.read_point_cloud(ply2)
+    print(f"Nube inicial: {len(pcd1.points)} puntos")
+    print(f"Nube final: {len(pcd2.points)} puntos")
+    o3d.visualization.draw_geometries([pcd1.paint_uniform_color([1,0,0]), pcd2.paint_uniform_color([0,1,0])])
+
+if __name__ == '__main__':
+    ply1 = "/Users/jorgenajera/Documents/Duck_Vision_/figuraMaya3/output/initial_reconstruction.ply"
+    ply2 = "/Users/jorgenajera/Documents/Duck_Vision_/figuraMaya3/output/final_reconstruction.ply"
+    visualizar_dos_nubes(ply1, ply2)
