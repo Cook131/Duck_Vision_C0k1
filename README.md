@@ -1,5 +1,5 @@
 
-<p style="text-align: justify;">Este script carga un archivo de vídeo y aplica detección de bordes de Canny junto con un filtro de Kalman para resaltar y seguir los centroides de los contornos. Al definir una tasa de fotogramas objetivo, salta cuadros según sea necesario, convierte cada imagen procesada a escala de grises y calcula los bordes para generar una vista clara y filtrada de las formas en movimiento.</p>
+<p style="text-align: justify;">**Canny_EdgeVideo.py** carga un archivo de vídeo y aplica detección de bordes de Canny junto con un filtro de Kalman para resaltar y seguir los centroides de los contornos. Al definir una tasa de fotogramas objetivo, salta cuadros según sea necesario, convierte cada imagen procesada a escala de grises y calcula los bordes para generar una vista clara y filtrada de las formas en movimiento.</p>
 
 <p style="text-align: justify;">Para cada fotograma, se extraen los contornos del mapa de bordes y se calculan sus centroides mediante momentos de imagen. El primer centroide inicializa el estado del filtro de Kalman, y cada centroide posterior se utiliza como medición para predecir y corregir la estimación del filtro. Este paso de suavizado reduce las oscilaciones en las posiciones rastreadas a lo largo del tiempo.</p>
 
