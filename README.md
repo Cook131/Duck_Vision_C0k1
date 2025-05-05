@@ -115,4 +115,86 @@ Este proyecto permite controlar el brazo robótico NiryoOne en CoppeliaSim usand
 1. Abre CoppeliaSim y carga la escena con el NiryoOne y los objetos renombrados.
 2. Ejecuta el script Python.
 
-   
+
+# 🏺 Reconstrucción 3D de Figurilla Maya a partir de Video
+
+Este proyecto permite reconstruir una nube de puntos 3D de una figurilla maya usando técnicas de Structure from Motion (SfM) a partir de un video que recorre varios ángulos del objeto.
+
+---
+
+## 🚀 Tecnologías utilizadas
+
+- **Python 3**
+- **OpenCV** – Detección de características, extracción de frames, visualización de matches
+- **Open3D** – Visualización y manejo de nubes de puntos
+- **NumPy** – Procesamiento numérico
+- **Matplotlib** – Gráficas comparativas de parámetros
+- **scikit-learn** – Ajuste de parámetros y optimización
+- **SciPy** – Optimización de nubes de puntos
+
+---
+
+## 📂 Descripción de scripts
+
+- **`sacar_fps.py`**
+  - Extrae frames del video original, asegurando buena cobertura angular y calidad de imagen.
+- **`deteccion_limites.py`**
+  - Contiene la clase principal `SfMReconstructor` que realiza:
+    - Detección de características (SIFT/ORB)
+    - Emparejamiento de puntos clave entre imágenes
+    - Pruebas automáticas de parámetros RANSAC
+    - Reconstrucción 3D inicial y adición de vistas
+    - Bundle adjustment y exportación a `.ply`
+- **`implementación_bici.py`**
+  - Script principal para ejecutar todo el pipeline de reconstrucción 3D.
+- **`ver_nube.py`**
+  - Visualiza la nube de puntos 3D generada (`.ply`) usando Open3D.
+  - Permite limpiar, downsamplear y comparar nubes inicial/final.
+
+---
+
+## 🖼️ Ejemplo de resultados
+
+### Nube de puntos 3D reconstruida
+
+<p align="center">
+  <!-- Inserta aquí tu gif de la nube de puntos -->
+  <img src="ruta/a/tu_gif_nube.gif" width="500"/>
+</p>
+
+---
+
+### Ejemplo de matches entre imágenes
+
+<p align="center">
+  <!-- Inserta aquí tus imágenes de matches -->
+  <img src="ruta/a/match_1.jpg" width="300"/>
+  <img src="ruta/a/match_2.jpg" width="300"/>
+</p>
+
+---
+
+## 📝 Pasos de uso
+
+1. **Extrae los frames del video**
+   ```bash
+   python sacar_fps.py
+   ```
+2. **Ejecuta la reconstrucción 3D**
+   ```bash
+   python implementación_bici.py
+   ```
+3. **Visualiza la nube de puntos**
+   ```bash
+   python ver_nube.py
+   ```
+
+---
+
+## 📌 Notas y recomendaciones
+
+- Usa videos con buena iluminación y fondo neutro para mejores resultados.
+- Puedes ajustar los parámetros de detección y matching en `deteccion_limites.py`.
+- Si la nube de puntos es pobre, prueba recortar las imágenes o usar menos frames.
+
+---
