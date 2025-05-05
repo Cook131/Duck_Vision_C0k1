@@ -20,7 +20,7 @@ Retos de visión computacional desarrollados para el curso "Implementación de r
 
 ### Uso
 
-Coloca un vídeo de ejemplo en la carpeta <code>Canny2/video.mp4</code>, navega hasta ella y ejecuta:
+Coloca un vídeo de ejemplo <code>video.mp4</code> en la carpeta <code>Canny2</code>, navega hasta ella y ejecuta:
 
 ```bash
 python3 Canny_EdgeVideo.py
