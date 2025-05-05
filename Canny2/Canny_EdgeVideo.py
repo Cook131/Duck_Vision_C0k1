@@ -34,13 +34,12 @@ while cap.isOpened():
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(gray, canny_thresh1, canny_thresh2)
 
-    # Crear una visualización mejorada de los bordes
-    # Convertir los bordes a color para poder mezclarlos
-    edges_color = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    # Crear una visualización en escala de grises
+    # Convertir el frame a escala de grises
+    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
-    # Mezclar el frame original con los bordes
-    # Los bordes se mostrarán en blanco sobre el frame original
-    display = cv2.addWeighted(frame, 0.7, edges_color, 0.3, 0)
+    # Mezclar el frame en gris con los bordes
+    display = cv2.addWeighted(gray_frame, 0.3, edges, 0.7, 0)
 
     # Encuentra contornos
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -65,10 +64,10 @@ while cap.isOpened():
         estimated = kalman.correct(measurement)
 
         # Dibuja el contorno y el centroide
-        cv2.drawContours(display, [cnt], -1, (0,255,0), 1)  # Contorno en verde
-        cv2.circle(display, (cx, cy), 3, (0,0,255), -1)      # Centroide en rojo
+        cv2.drawContours(display, [cnt], -1, (255,255,255), 1)  # Contorno en blanco
+        cv2.circle(display, (cx, cy), 3, (255,255,255), -1)      # Centroide en blanco
 
-    cv2.imshow('Canny + Kalman', display)
+    cv2.imshow('Canny Edges', display)
     if cv2.waitKey(frame_delay) & 0xFF == ord('q'):  # Aumentado el delay entre frames
         break
 

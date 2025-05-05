@@ -688,3 +688,6 @@ class SfMReconstructor:
 # reconstructor.match_features()
 # reconstructor.reconstruct_initial_pair()
 # reconstructor.add_more_views()
+
+size_mb = os.path.getsize("/Users/jorgenajera/Documents/Duck_Vision_/figuraMaya3/output/final_reconstruction.ply") / (1024 * 1024)
+print(f"Tamaño del archivo PLY: {size_mb:.2f} MB")
