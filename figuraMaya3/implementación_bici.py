@@ -21,7 +21,7 @@ def main():
     image_dir = '/Users/jorgenajera/Documents/Duck_Vision_/figuraMaya3/imagenes_3D'
     
     # Crear objeto reconstructor
-    reconstructor = SfMReconstructor(image_dir, output_dir='/Users/jorgenajera/Documents/Duck_Vision_/output', feature_method='sift')
+    reconstructor = SfMReconstructor(image_dir, output_dir='/Users/jorgenajera/Documents/Duck_Vision_/figuraMaya3/output', feature_method='sift')
     
     # Detectar características en todas las imágenes
     reconstructor = SfMReconstructor(image_dir, output_dir='output', feature_method='sift')

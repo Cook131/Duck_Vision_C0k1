@@ -4,45 +4,7 @@ import numpy as np
 import sys
 import time
 import math
-import os
-
-# Añadir ruta de la API de CoppeliaSim para Mac
-# Ajusta esta ruta según donde tengas instalado CoppeliaSim
-COPPELIASIM_DIR = '/Applications/CoppeliaSim.app/Contents/MacOS/'
-API_DIR = os.path.join(COPPELIASIM_DIR, 'programming/remoteApiBindings/python/python')
-
-# Añadir la ruta al PYTHONPATH
-if os.path.exists(API_DIR):
-    sys.path.append(API_DIR)
-else:
-    print(f"¡ATENCIÓN! No se encuentra la API de CoppeliaSim en: {API_DIR}")
-    print("Por favor verifica la ruta de instalación de CoppeliaSim")
-    print("Buscando en rutas alternativas...")
-    
-    # Intentar encontrar la API en otras ubicaciones comunes
-    alt_paths = [
-        './remoteApi',  # Directorio local
-        '~/Downloads/CoppeliaSim.app/Contents/MacOS/programming/remoteApiBindings/python/python',
-        '/Applications/CoppeliaSim_Edu.app/Contents/MacOS/programming/remoteApiBindings/python/python'
-    ]
-    
-    for path in alt_paths:
-        expanded_path = os.path.expanduser(path)
-        if os.path.exists(expanded_path):
-            sys.path.append(expanded_path)
-            print(f"API encontrada en: {expanded_path}")
-            API_DIR = expanded_path
-            break
-
-# Importar API de CoppeliaSim
-try:
-    import sim
-except Exception as e:
-    print(f'Error importando módulo sim: {e}')
-    print('Asegúrate de tener la API de CoppeliaSim para Python correctamente instalada')
-    print('Para Mac, normalmente se encuentra en: /Applications/CoppeliaSim.app/Contents/MacOS/')
-    print('Puedes copiar los archivos sim.py, simConst.py y remoteApi.dylib al directorio de este script')
-    sys.exit(1)
+from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 
 # Inicializar MediaPipe Pose para codo y muñeca
 mp_pose = mp.solutions.pose
@@ -64,9 +26,9 @@ mp_drawing = mp.solutions.drawing_utils
 # Clases y funciones auxiliares
 class JointController:
     """Clase para gestionar un joint específico y sus propiedades"""
-    def __init__(self, name, clientID, handle=None):
+    def __init__(self, name, sim, handle=None):
         self.name = name
-        self.clientID = clientID
+        self.sim = sim
         self.handle = handle
         self.position = [0, 0, 0]
         self.orientation = [0, 0, 0, 1]  # Cuaternión [x, y, z, w]
@@ -75,54 +37,49 @@ class JointController:
     def get_handle(self):
         """Obtiene el handle del objeto desde CoppeliaSim"""
         if self.handle is None:
-            ret, self.handle = sim.simxGetObjectHandle(
-                self.clientID, self.name, sim.simx_opmode_blocking)
-            if ret != 0:
-                print(f"Error al obtener handle para {self.name}: {ret}")
+            try:
+                self.handle = self.sim.getObject(self.name)
+            except Exception as e:
+                print(f"Error al obtener handle para {self.name}: {e}")
                 return False
         return True
         
-    def update_position(self, position, mode=sim.simx_opmode_oneshot):
+    def update_position(self, position):
         """Actualiza la posición del objeto en CoppeliaSim"""
         if self.handle is not None:
             self.position = position
-            sim.simxSetObjectPosition(
-                self.clientID, self.handle, -1, position, mode)
+            self.sim.setObjectPosition(self.handle, -1, position)
             self.last_update_time = time.time()
             
-    def update_orientation(self, orientation, mode=sim.simx_opmode_oneshot):
+    def update_orientation(self, orientation):
         """Actualiza la orientación del objeto en CoppeliaSim usando cuaterniones"""
         if self.handle is not None:
             self.orientation = orientation
-            sim.simxSetObjectQuaternion(
-                self.clientID, self.handle, -1, orientation, mode)
+            self.sim.setObjectQuaternion(self.handle, -1, orientation)
             
-    def get_position(self, mode=sim.simx_opmode_blocking):
+    def get_position(self):
         """Obtiene la posición actual del objeto en CoppeliaSim"""
         if self.handle is not None:
-            ret, position = sim.simxGetObjectPosition(
-                self.clientID, self.handle, -1, mode)
-            if ret == 0:
-                self.position = position
+            self.position = self.sim.getObjectPosition(self.handle, -1)
             return self.position
         return None
 
 # Clase para gestionar objetos físicos (con propiedades dinámicas)
 class PhysicalObject:
     """Clase para gestionar objetos físicos en CoppeliaSim"""
-    def __init__(self, name, clientID, handle=None):
+    def __init__(self, name, sim, handle=None):
         self.name = name
-        self.clientID = clientID
+        self.sim = sim
         self.handle = handle
         self.is_dynamic = False
         
     def get_handle(self):
         """Obtiene el handle del objeto desde CoppeliaSim"""
         if self.handle is None:
-            ret, self.handle = sim.simxGetObjectHandle(
-                self.clientID, self.name, sim.simx_opmode_blocking)
-            if ret != 0:
-                print(f"Error al obtener handle para {self.name}: {ret}")
+            try:
+                self.handle = self.sim.getObject(self.name)
+            except Exception as e:
+                print(f"Error al obtener handle para {self.name}: {e}")
                 return False
         return True
     
@@ -130,72 +87,26 @@ class PhysicalObject:
         """Habilita o deshabilita las propiedades dinámicas del objeto"""
         if self.handle is not None:
             # Configurar como dinámico (afectado por física)
-            sim.simxSetObjectIntParameter(
-                self.clientID, self.handle, 
-                sim.sim_shapeintparam_static, 0 if enable else 1, 
-                sim.simx_opmode_oneshot)
+            self.sim.setObjectInt32Param(self.handle, self.sim.objintparam_static, 0 if enable else 1)
             
             # Establecer propiedades de material (fricción, etc.)
             if enable:
                 # Establecer material: responde a colisiones
-                sim.simxSetObjectIntParameter(
-                    self.clientID, self.handle,
-                    sim.sim_shapefloatparam_mass, 0.5,  # Masa
-                    sim.simx_opmode_oneshot)
-                
-                # Responde a la gravedad
-                sim.simxSetObjectIntParameter(
-                    self.clientID, self.handle,
-                    sim.sim_objectspecialproperty_respondable, 1,
-                    sim.simx_opmode_oneshot)
+                self.sim.setShapeMassAndInertia(self.handle, 0.1, [0,0,0], [1,1,1])
             
             self.is_dynamic = enable
             return True
         return False
 
-# Función para conectar con CoppeliaSim
-def connect_to_coppeliasim(port=19997):
-    print('Conectando a CoppeliaSim...')
-    sim.simxFinish(-1)  # Cerrar todas las conexiones abiertas
-    clientID = sim.simxStart('127.0.0.1', port, True, True, 5000, 5)
-    
-    if clientID != -1:
-        print('Conexión a CoppeliaSim establecida')
-        # Verificar que la simulación está en ejecución
-        sim_running = sim.simxGetInMessageInfo(clientID, sim.simx_headeroffset_server_state)
-        if sim_running[0] & 1 == 0:
-            print("ADVERTENCIA: La simulación en CoppeliaSim no está en ejecución.")
-            print("Inicia la simulación con el botón Play para que la comunicación funcione correctamente.")
-    else:
-        print('Error al conectar con CoppeliaSim')
-        print('Asegúrate de que CoppeliaSim está en ejecución y en modo servidor')
-        print('Y que el puerto 19997 está habilitado para Remote API')
-        print('Puedes habilitarlo en Tools > Options > Remote API')
-        
-    return clientID
-
 # Mapear coordenadas de cámara a espacio 3D de CoppeliaSim
 def map_coords_to_sim(point_2d, depth=0.5, w=640, h=480, scale_factor=0.5):
     """
     Transforma coordenadas 2D de la cámara a espacio 3D de CoppeliaSim
-    Args:
-        point_2d: Punto [x,y] en coordenadas de la cámara
-        depth: Profundidad estimada (z) para el punto
-        w, h: Dimensiones del frame de la cámara
-        scale_factor: Factor de escala para ajustar el mapeo al espacio de trabajo
-    Returns:
-        Lista [x,y,z] con coordenadas en el espacio de CoppeliaSim
     """
     # Mapear de coordenadas de imagen [0,w]x[0,h] a [-1,1]x[-1,1]
-    x = (point_2d[0] / w - 0.5) * 2
-    y = -(point_2d[1] / h - 0.5) * 2  # Invertir eje Y (en imagen hacia abajo, en sim hacia arriba)
-    
-    # Aplicar factor de escala
-    x *= scale_factor
-    y *= scale_factor
-    
-    # Ajustar profundidad según lo que necesites en tu modelo
-    z = depth
+    x = (point_2d[0] / w - 0.5) * 2 * scale_factor
+    y = -(point_2d[1] / h - 0.5) * 2 * scale_factor
+    z = depth  # O -depth, según la orientación de tu sim
     
     return [x, y, z]
 
@@ -243,20 +154,15 @@ def calculate_orientation(point1, point2):
     return [qx, qy, qz, qw]
 
 # Función para actualizar la apertura de la pinza en CoppeliaSim
-def update_gripper_state(clientID, distance, min_dist=20, max_dist=120):
-    """
-    Actualiza la apertura de la pinza basándose en la distancia entre dedos
-    Args:
-        clientID: ID de conexión a CoppeliaSim
-        distance: Distancia entre dedos (pulgar e índice)
-        min_dist: Distancia mínima para apertura completa
-        max_dist: Distancia máxima para cierre completo
-    """
-    # Normalizar y recortar para obtener valor entre 0 (cerrado) y 1 (abierto)
-    normalized_distance = np.clip((distance - min_dist) / (max_dist - min_dist), 0.0, 1.0)
-    
-    # Configurar la señal para el script de Lua en CoppeliaSim
-    sim.simxSetFloatSignal(clientID, 'gripper_opening', normalized_distance, sim.simx_opmode_oneshot)
+def update_gripper_state(sim, distance, controllers, min_dist=20, max_dist=120):
+    try:
+        # Normalizar y recortar para obtener valor entre 0 (cerrado) y 1 (abierto)
+        normalized_distance = np.clip((distance - min_dist) / (max_dist - min_dist), 0.0, 1.0)
+        sim.setFloatSignal('gripper_opening', float(normalized_distance))
+        return normalized_distance  # Devuelve el valor para mostrarlo en pantalla
+    except Exception as e:
+        print(f"Error al actualizar pinza: {e}")
+        return None
 
 # Calcular distancia euclidiana entre dos puntos
 def distance(p1, p2):
@@ -264,25 +170,15 @@ def distance(p1, p2):
     return np.linalg.norm(np.array(p1) - np.array(p2))
 
 # Función para calcular la profundidad basada en la distancia entre hombro y muñeca
-def estimate_depth(shoulder_pos, wrist_pos, min_depth=0.2, max_depth=0.8):
+def estimate_depth(shoulder_pos, wrist_pos, min_depth=0.1, max_depth=0.5):
     """
     Estima la profundidad (coordenada z) basada en la distancia entre hombro y muñeca
-    Args:
-        shoulder_pos: Posición del hombro en coordenadas de la cámara
-        wrist_pos: Posición de la muñeca en coordenadas de la cámara
-        min_depth: Valor mínimo de profundidad
-        max_depth: Valor máximo de profundidad
-    Returns:
-        Valor estimado de profundidad
     """
-    # La idea es que cuando el brazo está estirado (distancia mayor), 
-    # el punto está más cerca de la cámara (menor profundidad)
     arm_length = distance(shoulder_pos, wrist_pos)
     
-    # Normalizar entre valores esperados de longitud del brazo
-    # Estos valores deberías ajustarlos según tus necesidades
-    max_arm_length = 300  # pixels
-    min_arm_length = 100  # pixels
+    # Ajustar estos valores según tu cámara y espacio de trabajo
+    max_arm_length = 400  # Aumentado para mejor detección
+    min_arm_length = 50   # Reducido para mejor detección
     
     # Calcular profundidad normalizada e invertida
     norm_length = np.clip((arm_length - min_arm_length) / (max_arm_length - min_arm_length), 0.0, 1.0)
@@ -291,72 +187,62 @@ def estimate_depth(shoulder_pos, wrist_pos, min_depth=0.2, max_depth=0.8):
     return depth
 
 # Configurar cinemática inversa para el brazo robótico
-def setup_inverse_kinematics(clientID, target_handle, tip_handle, base_handle):
+def setup_inverse_kinematics(sim, target_handle, tip_handle, base_handle):
     """
     Configura la cinemática inversa para el brazo robótico
-    Args:
-        clientID: ID de conexión a CoppeliaSim
-        target_handle: Handle del objeto target/objetivo
-        tip_handle: Handle del efector final
-        base_handle: Handle de la base del brazo
-    Returns:
-        Handle del grupo de IK o None si falla
     """
     try:
+        # Verificar que los handles son válidos
+        if not isinstance(target_handle, int) or not isinstance(tip_handle, int) or not isinstance(base_handle, int):
+            print(f"Error: Handles inválidos - target: {type(target_handle)}, tip: {type(tip_handle)}, base: {type(base_handle)}")
+            return None
+
         # Crear un nuevo grupo de IK
-        result, ikGroupHandle = sim.simxCallScriptFunction(
-            clientID, 'remoteApiCommandServer', 
-            sim.sim_scripttype_childscript,
-            'createIkGroup', [], [], [], bytearray(),
-            sim.simx_opmode_blocking)
-            
-        if result != 0:
-            print(f"Error al crear grupo IK: {result}")
+        ikGroupHandle = sim.createIkGroup(0)  # 0 = método DLS
+        if ikGroupHandle == -1:
+            print("Error al crear grupo IK")
             return None
             
+        print(f"Grupo IK creado: {ikGroupHandle}")
+        
         # Crear el elemento de IK (tip -> target)
-        result, ikElementHandle = sim.simxCallScriptFunction(
-            clientID, 'remoteApiCommandServer', 
-            sim.sim_scripttype_childscript,
-            'createIkElement', [ikGroupHandle, tip_handle, target_handle, base_handle], 
-            [], [], bytearray(),
-            sim.simx_opmode_blocking)
-            
-        if result != 0:
-            print(f"Error al crear elemento IK: {result}")
+        # Asegurarse de que los handles son enteros
+        ikElementHandle = sim.createIkElement(
+            int(ikGroupHandle),
+            int(tip_handle),
+            int(target_handle),
+            int(base_handle)
+        )
+        
+        if ikElementHandle == -1:
+            print("Error al crear elemento IK")
             return None
             
         print(f"Cinemática inversa configurada: Grupo={ikGroupHandle}, Elemento={ikElementHandle}")
         return ikGroupHandle
+        
     except Exception as e:
         print(f"Error al configurar cinemática inversa: {e}")
+        print(f"Handles recibidos - target: {target_handle}, tip: {tip_handle}, base: {base_handle}")
         return None
 
-# Función para activar el cálculo de cinemática inversa
-def solve_inverse_kinematics(clientID, ikGroupHandle):
+def solve_inverse_kinematics(sim, ikGroupHandle):
     """
     Resuelve la cinemática inversa para la posición actual del target
-    Args:
-        clientID: ID de conexión a CoppeliaSim
-        ikGroupHandle: Handle del grupo de IK
     """
     if ikGroupHandle is not None:
         try:
             # Llamar al solucionador de IK
-            result = sim.simxCallScriptFunction(
-                clientID, 'remoteApiCommandServer', 
-                sim.sim_scripttype_childscript,
-                'solveIk', [ikGroupHandle], [], [], bytearray(),
-                sim.simx_opmode_oneshot)
+            sim.handleIkGroup(ikGroupHandle)
         except Exception as e:
             print(f"Error al resolver IK: {e}")
 
 # Función para crear un objeto cúbico físico
-def create_dynamic_cube(clientID, size=0.05, position=[0,0,0], color=[1,0,0]):
+def create_dynamic_cube(sim, size=0.05, position=[0,0,0], color=[1,0,0]):
     """
     Crea un cubo con propiedades dinámicas en CoppeliaSim
     Args:
-        clientID: ID de conexión a CoppeliaSim
+        sim: Objeto simulación de CoppeliaSim
         size: Tamaño del cubo
         position: Posición inicial [x,y,z]
         color: Color [r,g,b] en rango 0-1
@@ -365,61 +251,43 @@ def create_dynamic_cube(clientID, size=0.05, position=[0,0,0], color=[1,0,0]):
     """
     try:
         # Crear cubo
-        emptyBuff = bytearray()
-        res, retInts, retFloats, retStrings, retBuffer = sim.simxCallScriptFunction(
-            clientID, 'remoteApiCommandServer',
-            sim.sim_scripttype_childscript,
-            'createCube', [], [size] + position + color, [], emptyBuff,
-            sim.simx_opmode_blocking)
-            
-        if res == 0 and len(retInts) > 0:
-            cubeHandle = retInts[0]
-            print(f"Cubo creado con éxito: handle={cubeHandle}")
-            
-            # Configurar propiedades físicas
-            cube = PhysicalObject(f"Cube_{cubeHandle}", clientID, cubeHandle)
-            cube.enable_dynamics(True)
-            
-            return cubeHandle
-        else:
-            print(f"Error al crear cubo: {res}")
-            return None
+        handle = sim.createPrimitiveShape(sim.primitiveshape_cube, [size, size, size], 0, position)
+        sim.setObjectColor(handle, 0, sim.colorcomponent_ambient_diffuse, color)
+        sim.setObjectInt32Param(handle, sim.objintparam_static, 0)  # Dinámico
+        sim.setShapeMassAndInertia(handle, 0.1, [0,0,0], [1,1,1])
+        return handle
     except Exception as e:
         print(f"Error al crear cubo dinámico: {e}")
         return None
 
 # Función para inicializar y obtener handles de objetos importantes
-def initialize_joint_controllers(clientID):
+def initialize_joint_controllers(sim):
     """
-    Inicializa controladores para todos los joints importantes
+    Inicializa controladores para los joints y dummies relevantes del NiryoOne
     Args:
-        clientID: ID de conexión a CoppeliaSim
+        sim: Objeto simulación de CoppeliaSim
     Returns:
         Diccionario con los controladores de joints
     """
     joint_names = [
-        'target',     # Target para el efector final
-        'ikTarget',   # Target para cinemática inversa
-        'index_finger', # Dedo índice
-        'thumb_finger', # Dedo pulgar
-        'wrist',      # Muñeca
-        'elbow',      # Codo
-        'shoulder',   # Hombro
-        'arm_base',   # Base del brazo
-        'robotBase',  # Base del robot 
-        'endEffector' # Efector final
+        '/NiryoOne/NiryoOne_target',    # Target para el efector final (dummy)
+        '/NiryoOne/NiryoOne_tip',       # Tip del efector final (dummy)
+        '/NiryoOne/NiryoOne_joint1',     # Joint 1
+        '/NiryoOne/NiryoOne_joint2',     # Joint 2
+        '/NiryoOne/NiryoOne_joint3',     # Joint 3
+        '/NiryoOne/NiryoOne_joint4',     # Joint 4
+        '/NiryoOne/NiryoOne_joint5',     # Joint 5
+        '/NiryoOne/NiryoOne_joint6',     # Joint 6
+        '/NiryoOne/NiryoOneGripper'     # Pinza (si existe)
     ]
-    
     controllers = {}
     for name in joint_names:
-        controller = JointController(name, clientID)
+        controller = JointController(name, sim)
         if controller.get_handle():
             controllers[name] = controller
             print(f"Joint '{name}' inicializado correctamente")
         else:
             print(f"¡ADVERTENCIA! No se pudo obtener handle para '{name}'")
-            print(f"Asegúrate de que existe un objeto con ese nombre en tu escena de CoppeliaSim")
-    
     return controllers
 
 # Función principal
@@ -440,38 +308,41 @@ def main():
     frame_height, frame_width, _ = frame.shape
     print(f"Resolución de cámara: {frame_width}x{frame_height}")
 
-    # Conexión a CoppeliaSim
-    clientID = connect_to_coppeliasim()
-    if clientID == -1:
-        print("No se pudo conectar a CoppeliaSim, saliendo...")
-        cap.release()
-        sys.exit(1)
+    # Inicializar cliente y simulación
+    client = RemoteAPIClient()
+    sim = client.require('sim')
 
     # Inicializar controladores de joints
     try:
-        controllers = initialize_joint_controllers(clientID)
+        controllers = initialize_joint_controllers(sim)
         if not controllers:
             print("No se pudieron inicializar los controladores de joints, saliendo...")
-            sim.simxFinish(clientID)
             cap.release()
             sys.exit(1)
+
+        # Crear el grupo IK solo una vez
+        ikGroupHandle = None
+        if '/NiryoOne/NiryoOne_target' in controllers and '/NiryoOne/NiryoOne_tip' in controllers and '/NiryoOne/NiryoOne_joint1' in controllers:
+            target_handle = controllers['/NiryoOne/NiryoOne_target'].handle
+            tip_handle = controllers['/NiryoOne/NiryoOne_tip'].handle
+            base_handle = controllers['/NiryoOne/NiryoOne_joint1'].handle
+            print(f"Configurando IK con handles - target: {target_handle}, tip: {tip_handle}, base: {base_handle}")
+            ikGroupHandle = setup_inverse_kinematics(
+                sim,
+                target_handle,
+                tip_handle,
+                base_handle
+            )
+
+        # Al inicio, después de obtener el handle del target:
+        initial_target_pos = None
+        if '/NiryoOne/NiryoOne_target' in controllers:
+            initial_target_pos = controllers['/NiryoOne/NiryoOne_target'].get_position()
+
     except Exception as e:
         print(f"Error al inicializar controladores: {e}")
-        sim.simxFinish(clientID)
         cap.release()
         sys.exit(1)
-    
-    # Configurar cinemática inversa si tenemos los objetos necesarios
-    ik_group_handle = None
-    if all(k in controllers for k in ['ikTarget', 'endEffector', 'robotBase']):
-        ik_group_handle = setup_inverse_kinematics(
-            clientID, 
-            controllers['ikTarget'].handle, 
-            controllers['endEffector'].handle, 
-            controllers['robotBase'].handle
-        )
-    else:
-        print("No se pudo configurar la cinemática inversa: faltan objetos necesarios")
 
     # Variables para tracking
     smoothing_factor = 0.7  # Factor para suavizado (0-1, mayor = más suave)
@@ -496,6 +367,7 @@ def main():
     print("Presiona 'q' para salir, 'c' para crear un cubo dinámico")
 
     try:
+        wrist_pos_3d = None
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -577,8 +449,8 @@ def main():
                             shoulder_pos_3d[i] * (1 - smoothing_factor) for i in range(3)
                         ]
                     last_positions['shoulder'] = shoulder_pos_3d
-                    if 'shoulder' in controllers:
-                        controllers['shoulder'].update_position(shoulder_pos_3d)
+                    if '/NiryoOne/NiryoOne_target' in controllers:
+                        controllers['/NiryoOne/NiryoOne_target'].update_position(shoulder_pos_3d)
                 
                 if elbow_pos is not None:
                     elbow_pos_3d = map_coords_to_sim(elbow_pos, estimated_depth, frame_width, frame_height)
@@ -588,28 +460,31 @@ def main():
                             elbow_pos_3d[i] * (1 - smoothing_factor) for i in range(3)
                         ]
                     last_positions['elbow'] = elbow_pos_3d
-                    if 'elbow' in controllers:
-                        controllers['elbow'].update_position(elbow_pos_3d)
+                    if '/NiryoOne/NiryoOne_target' in controllers:
+                        controllers['/NiryoOne/NiryoOne_target'].update_position(elbow_pos_3d)
                 
                 if wrist_pos is not None:
-                    wrist_pos_3d = map_coords_to_sim(wrist_pos, estimated_depth - 0.1, frame_width, frame_height)
+                    wrist_pos_3d = map_coords_to_sim(wrist_pos, estimated_depth, frame_width, frame_height)
                     if last_positions['wrist'] is not None:
                         wrist_pos_3d = [
-                            last_positions['wrist'][i] * smoothing_factor + 
+                            last_positions['wrist'][i] * smoothing_factor +
                             wrist_pos_3d[i] * (1 - smoothing_factor) for i in range(3)
                         ]
                     last_positions['wrist'] = wrist_pos_3d
-                    if 'wrist' in controllers:
-                        controllers['wrist'].update_position(wrist_pos_3d)
+                    if '/NiryoOne/NiryoOne_target' in controllers:
+                        controllers['/NiryoOne/NiryoOne_target'].update_position(wrist_pos_3d)
+                        # También actualizar la orientación del target
+                        if elbow_pos is not None:
+                            elbow_pos_3d = map_coords_to_sim(elbow_pos, estimated_depth, frame_width, frame_height)
+                            orientation = calculate_orientation(wrist_pos_3d, elbow_pos_3d)
+                            controllers['/NiryoOne/NiryoOne_target'].update_orientation(orientation)
                 
-                # Actualizar posición del target de IK
-                if wrist_pos is not None and 'ikTarget' in controllers:
-                    # El target de IK suele seguir la posición de la muñeca
-                    controllers['ikTarget'].update_position(wrist_pos_3d)
-                    
-                # Resolver IK (esto moverá todo el brazo incluyendo partes no mapeadas directamente)
-                if ik_group_handle is not None:
-                    solve_inverse_kinematics(clientID, ik_group_handle)
+                # Resolver IK solo si el grupo fue creado correctamente
+                if ikGroupHandle is not None:
+                    solve_inverse_kinematics(sim, ikGroupHandle)
+
+                if wrist_pos_3d is not None:
+                    print(f"Target 3D: {wrist_pos_3d}")
 
             # Procesar mano para obtener dedos
             current_time = time.time()
@@ -651,8 +526,19 @@ def main():
                 
                 # Calcular distancia entre dedos
                 finger_distance = distance(thumb_pos, index_pos)
-                cv2.putText(frame, f"Dist: {finger_distance:.1f}px", 
-                          (10, frame_height - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                
+                # Actualizar pinza con la distancia entre dedos
+                gripper_signal = update_gripper_state(sim, finger_distance, controllers, min_dist=20, max_dist=120)
+                
+                # Mostrar información de debug en la pantalla
+                if gripper_signal is not None:
+                    cv2.putText(frame, f"Dist: {finger_distance:.1f}px | Gripper: {gripper_signal:.2f}", 
+                                (10, frame_height - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                else:
+                    cv2.putText(frame, f"Dist: {finger_distance:.1f}px", 
+                                (10, frame_height - 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.putText(frame, f"Depth: {estimated_depth:.2f}", 
+                            (10, frame_height - 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 
                 # Dibujar línea entre dedos
                 cv2.line(frame, tuple(thumb_pos), tuple(index_pos), (0, 255, 255), 2)
@@ -675,20 +561,65 @@ def main():
                     ]
                 
                 # Actualizar posiciones en CoppeliaSim
-                if 'index_finger' in controllers:
-                    controllers['index_finger'].update_position(index_pos_3d)
-                
-                if 'thumb_finger' in controllers:
-                    controllers['thumb_finger'].update_position(thumb_pos_3d)
-                
-                # Actualizar posición del target (punto medio entre índice y pulgar)
-                if 'target' in controllers:
-                    target_pos = [(index_pos_3d[i] + thumb_pos_3d[i])/2 for i in range(3)]
-                    controllers['target'].update_position(target_pos)
-                
-                # Actualizar estado del gripper basado en distancia entre dedos
-                update_gripper_state(clientID, finger_distance)
+                if '/NiryoOne/NiryoOne_target' in controllers:
+                    controllers['/NiryoOne/NiryoOne_target'].update_position(index_pos_3d)
                 
                 # Guardar posiciones para suavizado
                 last_positions['index'] = index_pos_3d
                 last_positions['thumb'] = thumb_pos_3d
+
+            # Mostrar frame
+            cv2.imshow('Frame', frame)
+            
+            # Manejo de teclas
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('c'):
+                current_time = time.time()
+                if current_time - last_cube_creation_time > cube_creation_timeout:
+                    # Crear cubo en la posición actual del target
+                    if '/NiryoOne/NiryoOne_target' in controllers:
+                        target_pos = controllers['/NiryoOne/NiryoOne_target'].get_position()
+                        if target_pos is not None:
+                            cube_handle = create_dynamic_cube(
+                                sim,
+                                size=0.05,
+                                position=target_pos,
+                                color=[1, 0, 0]  # Rojo
+                            )
+                            if cube_handle is not None:
+                                created_cubes.append(cube_handle)
+                                last_cube_creation_time = current_time
+                                print(f"Cubo creado en posición: {target_pos}")
+
+            # Nueva función de mapeo:
+            def map_height_to_sim_z(y_pixel, h=480, z_min=0.1, z_max=0.4):
+                """
+                Mapea la altura de la mano en la imagen (y_pixel) al eje Z del sim.
+                y_pixel: coordenada vertical en la imagen (0 arriba, h abajo)
+                z_min: altura mínima en el sim
+                z_max: altura máxima en el sim
+                """
+                # Invertir eje: 0 (arriba) -> z_max, h (abajo) -> z_min
+                norm = 1.0 - (y_pixel / h)
+                z = z_min + norm * (z_max - z_min)
+                return z
+
+            # En el bucle principal, al actualizar la posición del target:
+            if wrist_pos is not None and initial_target_pos is not None:
+                # Solo actualiza el eje Z
+                z = map_height_to_sim_z(wrist_pos[1], frame_height, z_min=0.1, z_max=0.4)
+                new_target_pos = [initial_target_pos[0], initial_target_pos[1], z]
+                controllers['/NiryoOne/NiryoOne_target'].update_position(new_target_pos)
+
+    except Exception as e:
+        print(f"Error durante la ejecución: {e}")
+    finally:
+        # Limpiar recursos
+        cap.release()
+        cv2.destroyAllWindows()
+        print("Programa terminado")
+
+if __name__ == "__main__":
+    main()
