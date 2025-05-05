@@ -1,10 +1,12 @@
+# Visión Computacional - Implementación de robótica inteligente
+
 Retos de visión computacional desarrollados para el curso "Implementación de robótica inteligente."
 
-# Canny Edge Detection
+## Canny Edge Detection
 
 <code>Canny2/Canny_EdgeVideo.py</code> carga un vídeo y aplica detección de bordes de **Canny** junto a un filtro de **Kalman** para resaltar y seguir los centroides de los contornos.
 
-## ¿Cómo funciona?
+### ¿Cómo funciona?
 
 1. **Extracción de contornos**  
    Cada fotograma se convierte a escala de grises y se aplica Canny para obtener un mapa de bordes.  
@@ -16,7 +18,7 @@ Retos de visión computacional desarrollados para el curso "Implementación de r
 4. **Visualización**  
    Se superpone el mapa de bordes sobre el fotograma en gris, dibujando cada contorno y marcando su centroide con un punto blanco.
 
-## Uso
+### Uso
 
 Coloca un vídeo de ejemplo en la carpeta <code>Canny2/video.mp4</code>, navega hasta ella y ejecuta:
 
