@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 # Parámetros
-video_path = '/Users/jorgenajera/Documents/Duck_Vision_/Canny2/badToTheBone.mp4'
+video_path = 'video.mp4'
 target_fps = 12
 canny_thresh1 = 100
 canny_thresh2 = 200
