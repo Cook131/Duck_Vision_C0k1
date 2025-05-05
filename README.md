@@ -1,5 +1,3 @@
-Thought for a couple of seconds
-
 
 <p style="text-align: justify;">Este script carga un archivo de vídeo y aplica detección de bordes de Canny junto con un filtro de Kalman para resaltar y seguir los centroides de los contornos. Al definir una tasa de fotogramas objetivo, salta cuadros según sea necesario, convierte cada imagen procesada a escala de grises y calcula los bordes para generar una vista clara y filtrada de las formas en movimiento.</p>
 
