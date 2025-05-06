@@ -159,7 +159,7 @@ Este proyecto permite reconstruir una nube de puntos 3D de una figurilla maya us
 
 <p align="center">
   <!-- Inserta aquí tu gif de la nube de puntos -->
-  <img src="[ruta/a/tu_gif_nube.gif](https://github.com/user-attachments/assets/d89afcfa-6e5d-460a-9fec-ee6ef79ff168)" width="500"/>
+  <img src="https://github.com/user-attachments/assets/d89afcfa-6e5d-460a-9fec-ee6ef79ff168" width="500"/>
 </p>
 
 ### Ejemplo de matches y keypoints entre imágenes
